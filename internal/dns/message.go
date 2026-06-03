@@ -5,6 +5,9 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -55,7 +58,7 @@ const (
 func newMessage(questions []Question, answers, authorities, additionals []ResourceRecord) (Message, error) {
 	id, err := genRandomID()
 	if err != nil {
-		return Message{}, err
+		return Message{}, fmt.Errorf("creating message: %w", err)
 	}
 	return Message{
 		Header: Header{
@@ -78,34 +81,34 @@ func decodeMessage(data []byte) (Message, error) {
 	r := bytes.NewReader(data)
 	header := decodeHeader(r)
 	questions := make([]Question, header.QDCount)
-	for range header.QDCount - 1 {
+	for range header.QDCount {
 		question, err := decodeQuestion(r)
 		if err != nil {
-			return Message{}, err
+			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
 		questions = append(questions, question)
 	}
 	answers := make([]ResourceRecord, header.ANCount)
-	for range header.ANCount - 1 {
+	for range header.ANCount {
 		answer, err := decodeResourceRecord(r)
 		if err != nil {
-			return Message{}, err
+			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
 		answers = append(answers, answer)
 	}
 	authorities := make([]ResourceRecord, header.NSCount)
-	for range header.NSCount - 1 {
+	for range header.NSCount {
 		authority, err := decodeResourceRecord(r)
 		if err != nil {
-			return Message{}, err
+			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
 		authorities = append(authorities, authority)
 	}
 	additionals := make([]ResourceRecord, header.ARCount)
-	for range header.ARCount - 1 {
+	for range header.ARCount {
 		additional, err := decodeResourceRecord(r)
 		if err != nil {
-			return Message{}, err
+			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
 		additionals = append(additionals, additional)
 	}
@@ -128,21 +131,21 @@ func decodeQuestion(r *bytes.Reader) (Question, error) {
 	var typ, class uint16
 	name, err := decodeName(r)
 	if err != nil {
-		return Question{}, err
+		return Question{}, fmt.Errorf("decoding question: %w", err)
 	}
 	err = binary.Read(r, binary.BigEndian, &typ)
 	if err != nil {
-		return Question{}, err
+		return Question{}, fmt.Errorf("decoding question: %w", err)
 	}
 	err = binary.Read(r, binary.BigEndian, &class)
 	if err != nil {
-		return Question{}, err
+		return Question{}, fmt.Errorf("decoding question: %w", err)
 	}
 	return Question{
 		Name:  name,
 		Type:  typ,
 		Class: class,
-	}, err
+	}, nil
 }
 
 func decodeResourceRecord(r *bytes.Reader) (ResourceRecord, error) {
@@ -150,28 +153,28 @@ func decodeResourceRecord(r *bytes.Reader) (ResourceRecord, error) {
 	var ttl int32
 	name, err := decodeName(r)
 	if err != nil {
-		return ResourceRecord{}, err
+		return ResourceRecord{}, fmt.Errorf("decoding record: %w", err)
 	}
 	err = binary.Read(r, binary.BigEndian, &typ)
 	if err != nil {
-		return ResourceRecord{}, err
+		return ResourceRecord{}, fmt.Errorf("decoding record: %w", err)
 	}
 	err = binary.Read(r, binary.BigEndian, &class)
 	if err != nil {
-		return ResourceRecord{}, err
+		return ResourceRecord{}, fmt.Errorf("decoding record: %w", err)
 	}
 	err = binary.Read(r, binary.BigEndian, &ttl)
 	if err != nil {
-		return ResourceRecord{}, err
+		return ResourceRecord{}, fmt.Errorf("decoding record: %w", err)
 	}
 	err = binary.Read(r, binary.BigEndian, &datalength)
 	if err != nil {
-		return ResourceRecord{}, err
+		return ResourceRecord{}, fmt.Errorf("decoding record: %w", err)
 	}
 	data := make([]byte, datalength)
 	_, err = r.Read(data)
 	if err != nil {
-		return ResourceRecord{}, err
+		return ResourceRecord{}, fmt.Errorf("decoding record: %w", err)
 	}
 	return ResourceRecord{
 		Name:       name,
@@ -184,19 +187,24 @@ func decodeResourceRecord(r *bytes.Reader) (ResourceRecord, error) {
 }
 
 func decodeName(r *bytes.Reader) (string, error) {
+	// TODO: implement compression support
+	// NOTE: RFC 1035 4.1.4
 	var labels []string
 	for {
 		length, err := r.ReadByte()
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("decoding name: %w", err)
 		}
 		if length == 0 {
 			break
 		}
+		if length&0xC0 == 0xC0 {
+			return "", errors.New("compression pointers not supported")
+		}
 		buf := make([]byte, length)
 		_, err = r.Read(buf)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("decoding name: %w", err)
 		}
 		labels = append(labels, string(buf))
 	}
@@ -208,46 +216,46 @@ func encodeMessage(m Message) ([]byte, error) {
 	var buf bytes.Buffer
 	err := binary.Write(&buf, binary.BigEndian, m.Header)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding message: %w", err)
 	}
 	for _, q := range m.Questions {
 		question, err := encodeQuestion(q)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 		err = binary.Write(&buf, binary.BigEndian, question)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 	}
 	for _, r := range m.Answers {
 		record, err := encodeResourceRecord(r)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 		err = binary.Write(&buf, binary.BigEndian, record)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 	}
 	for _, r := range m.Authorities {
 		record, err := encodeResourceRecord(r)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 		err = binary.Write(&buf, binary.BigEndian, record)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 	}
 	for _, r := range m.Additionals {
 		record, err := encodeResourceRecord(r)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 		err = binary.Write(&buf, binary.BigEndian, record)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding message: %w", err)
 		}
 	}
 	return buf.Bytes(), nil
@@ -257,19 +265,19 @@ func encodeQuestion(q Question) ([]byte, error) {
 	var buf bytes.Buffer
 	nameBytes, err := encodeName(q.Name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding question: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, nameBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding question: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, q.Type)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding question: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, q.Class)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding question: %w", err)
 	}
 	return buf.Bytes(), nil
 }
@@ -278,51 +286,51 @@ func encodeResourceRecord(r ResourceRecord) ([]byte, error) {
 	var buf bytes.Buffer
 	nameBytes, err := encodeName(r.Name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding record: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, nameBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding record: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, r.Type)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding record: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, r.Class)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding record: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, r.TTL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding record: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, r.DataLength)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding record: %w", err)
 	}
 	err = binary.Write(&buf, binary.BigEndian, r.Data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding record: %w", err)
 	}
 	return buf.Bytes(), nil
 }
 
 func encodeName(name string) ([]byte, error) {
+	slog.Debug("encoding name", "name", name)
 	var buf bytes.Buffer
-	labels := strings.Split(name, ".")
-	for _, label := range labels {
-		err := binary.Write(&buf, binary.BigEndian, len(label))
+	for label := range strings.SplitSeq(name, ".") {
+		err := buf.WriteByte(uint8(len(label)))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding name: %w", err)
 		}
-		err = binary.Write(&buf, binary.BigEndian, label)
+		_, err = buf.WriteString(label)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding name: %w", err)
 		}
 	}
-	err := binary.Write(&buf, binary.BigEndian, 0)
+	err := buf.WriteByte(0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encoding name: %w", err)
 	}
 	return buf.Bytes(), nil
 }
@@ -330,5 +338,8 @@ func encodeName(name string) ([]byte, error) {
 func genRandomID() (uint16, error) {
 	var id uint16
 	err := binary.Read(rand.Reader, binary.BigEndian, &id)
-	return id, err
+	if err != nil {
+		return id, fmt.Errorf("generating ID: %w", err)
+	}
+	return id, nil
 }
