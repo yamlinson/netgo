@@ -77,12 +77,12 @@ func newMessage(questions []Question, answers, authorities, additionals []Resour
 }
 
 // decodeMessage decodes a DNS message from raw bytes to struct representations of each section
-func decodeMessage(data []byte) (Message, error) {
-	r := bytes.NewReader(data)
+func decodeMessage(msg []byte) (Message, error) {
+	r := bytes.NewReader(msg)
 	header := decodeHeader(r)
 	questions := make([]Question, header.QDCount)
 	for range header.QDCount {
-		question, err := decodeQuestion(r)
+		question, err := decodeQuestion(r, msg)
 		if err != nil {
 			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
@@ -90,7 +90,7 @@ func decodeMessage(data []byte) (Message, error) {
 	}
 	answers := make([]ResourceRecord, header.ANCount)
 	for range header.ANCount {
-		answer, err := decodeResourceRecord(r)
+		answer, err := decodeResourceRecord(r, msg)
 		if err != nil {
 			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
@@ -98,7 +98,7 @@ func decodeMessage(data []byte) (Message, error) {
 	}
 	authorities := make([]ResourceRecord, header.NSCount)
 	for range header.NSCount {
-		authority, err := decodeResourceRecord(r)
+		authority, err := decodeResourceRecord(r, msg)
 		if err != nil {
 			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
@@ -106,7 +106,7 @@ func decodeMessage(data []byte) (Message, error) {
 	}
 	additionals := make([]ResourceRecord, header.ARCount)
 	for range header.ARCount {
-		additional, err := decodeResourceRecord(r)
+		additional, err := decodeResourceRecord(r, msg)
 		if err != nil {
 			return Message{}, fmt.Errorf("decoding message: %w", err)
 		}
@@ -127,9 +127,9 @@ func decodeHeader(r *bytes.Reader) Header {
 	return h
 }
 
-func decodeQuestion(r *bytes.Reader) (Question, error) {
+func decodeQuestion(r *bytes.Reader, msg []byte) (Question, error) {
 	var typ, class uint16
-	name, err := decodeName(r)
+	name, err := decodeName(r, msg)
 	if err != nil {
 		return Question{}, fmt.Errorf("decoding question: %w", err)
 	}
@@ -148,10 +148,10 @@ func decodeQuestion(r *bytes.Reader) (Question, error) {
 	}, nil
 }
 
-func decodeResourceRecord(r *bytes.Reader) (ResourceRecord, error) {
+func decodeResourceRecord(r *bytes.Reader, msg []byte) (ResourceRecord, error) {
 	var typ, class, datalength uint16
 	var ttl int32
-	name, err := decodeName(r)
+	name, err := decodeName(r, msg)
 	if err != nil {
 		return ResourceRecord{}, fmt.Errorf("decoding record: %w", err)
 	}
@@ -186,21 +186,41 @@ func decodeResourceRecord(r *bytes.Reader) (ResourceRecord, error) {
 	}, nil
 }
 
-func decodeName(r *bytes.Reader) (string, error) {
-	// TODO: implement compression support
-	// NOTE: RFC 1035 4.1.4
+func decodeName(r *bytes.Reader, msg []byte) (string, error) {
 	var labels []string
+
 	for {
 		length, err := r.ReadByte()
 		if err != nil {
 			return "", fmt.Errorf("decoding name: %w", err)
 		}
+
 		if length == 0 {
 			break
 		}
 		if length&0xC0 == 0xC0 {
-			return "", errors.New("compression pointers not supported")
+			next, err := r.ReadByte()
+			if err != nil {
+				return "", fmt.Errorf("decoding name: %w", err)
+			}
+			offset := binary.BigEndian.Uint16([]byte{length & 0x3F, next})
+			i := int(offset)
+			for {
+				if i >= len(msg) {
+					return "", errors.New("compression pointer out of bounds")
+				}
+				length := int(msg[i])
+				if length == 0 || length&0xC0 == 0xC0 {
+					break
+				}
+				i++
+				label := msg[i : i+length]
+				labels = append(labels, string(label))
+				i += length
+			}
+			break
 		}
+
 		buf := make([]byte, length)
 		_, err = r.Read(buf)
 		if err != nil {
