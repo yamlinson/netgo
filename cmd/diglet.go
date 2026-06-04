@@ -23,6 +23,52 @@ var (
 	}
 )
 
+var qtypes = map[string]uint16{
+	"A":     1,
+	"NS":    2,
+	"MD":    3,
+	"MF":    4,
+	"CNAME": 5,
+	"SOA":   6,
+	"MB":    7,
+	"MG":    8,
+	"MR":    9,
+	"NULL":  10,
+	"WKS":   11,
+	"PTR":   12,
+	"HINFO": 13,
+	"MINFO": 14,
+	"MX":    15,
+	"TXT":   16,
+	"AXFR":  252,
+	"MAILB": 253,
+	"MAILA": 254,
+	"*":     255,
+}
+
+var qtypeNames = map[uint16]string{
+	1:   "A",
+	2:   "NS",
+	3:   "MD",
+	4:   "MF",
+	5:   "CNAME",
+	6:   "SOA",
+	7:   "MB",
+	8:   "MG",
+	9:   "MR",
+	10:  "NULL",
+	11:  "WKS",
+	12:  "PTR",
+	13:  "HINFO",
+	14:  "MINFO",
+	15:  "MX",
+	16:  "TXT",
+	252: "AXFR",
+	253: "MAILB",
+	254: "MAILA",
+	255: "*",
+}
+
 func init() {
 	rootCmd.AddCommand(digletCmd)
 	digletCmd.PersistentFlags().StringVarP(&serv, "server", "s", "9.9.9.9", "DNS server address")
@@ -30,30 +76,7 @@ func init() {
 	digletCmd.PersistentFlags().StringVarP(&typeFlag, "type", "t", "A", "query type")
 }
 
-func runDiglet(cmd *cobra.Command, args []string) error {
-	qtypes := map[string]uint16{
-		"A":     1,
-		"NS":    2,
-		"MD":    3,
-		"MF":    4,
-		"CNAME": 5,
-		"SOA":   6,
-		"MB":    7,
-		"MG":    8,
-		"MR":    9,
-		"NULL":  10,
-		"WKS":   11,
-		"PTR":   12,
-		"HINFO": 13,
-		"MINFO": 14,
-		"MX":    15,
-		"TXT":   16,
-		"AXFR":  252,
-		"MAILB": 253,
-		"MAILA": 254,
-		"*":     255,
-	}
-
+func runDiglet(_ *cobra.Command, args []string) error {
 	qtype, ok := qtypes[strings.ToUpper(typeFlag)]
 	if !ok {
 		return fmt.Errorf("unsupported query type: %s", typeFlag)
@@ -69,7 +92,28 @@ func runDiglet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Print(res)
+	typ, ok := qtypeNames[qtype]
+	if !ok {
+		name = fmt.Sprintf("TYPE%d", qtype)
+	}
+
+	fmt.Println("----------------------------")
+	fmt.Println("---------- diglet ----------")
+	fmt.Println("----------------------------")
+	fmt.Println("---       Questions      ---")
+	fmt.Println("")
+	fmt.Printf("Server: %s\n", server)
+	fmt.Printf("Name: %s\n", name)
+	fmt.Printf("Type: %s\n", strings.ToUpper(typeFlag))
+	fmt.Println("")
+	fmt.Println("----------------------------")
+	fmt.Println("---        Answers       ---")
+	fmt.Println("")
+	fmt.Println("Type\tTTL\tName")
+	for _, answer := range res.Answers {
+		fmt.Printf("%s\t%d\t%s\n", typ, answer.TTL, answer.Name)
+	}
+	fmt.Println("")
 
 	return nil
 }
