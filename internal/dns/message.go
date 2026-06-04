@@ -80,7 +80,7 @@ func newMessage(questions []Question, answers, authorities, additionals []Resour
 func decodeMessage(msg []byte) (Message, error) {
 	r := bytes.NewReader(msg)
 	header := decodeHeader(r)
-	questions := make([]Question, header.QDCount)
+	questions := make([]Question, 0, header.QDCount)
 	for range header.QDCount {
 		question, err := decodeQuestion(r, msg)
 		if err != nil {
@@ -88,7 +88,7 @@ func decodeMessage(msg []byte) (Message, error) {
 		}
 		questions = append(questions, question)
 	}
-	answers := make([]ResourceRecord, header.ANCount)
+	answers := make([]ResourceRecord, 0, header.ANCount)
 	for range header.ANCount {
 		answer, err := decodeResourceRecord(r, msg)
 		if err != nil {
@@ -96,7 +96,7 @@ func decodeMessage(msg []byte) (Message, error) {
 		}
 		answers = append(answers, answer)
 	}
-	authorities := make([]ResourceRecord, header.NSCount)
+	authorities := make([]ResourceRecord, 0, header.NSCount)
 	for range header.NSCount {
 		authority, err := decodeResourceRecord(r, msg)
 		if err != nil {
@@ -104,7 +104,7 @@ func decodeMessage(msg []byte) (Message, error) {
 		}
 		authorities = append(authorities, authority)
 	}
-	additionals := make([]ResourceRecord, header.ARCount)
+	additionals := make([]ResourceRecord, 0, header.ARCount)
 	for range header.ARCount {
 		additional, err := decodeResourceRecord(r, msg)
 		if err != nil {
