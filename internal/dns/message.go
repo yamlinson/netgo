@@ -339,6 +339,9 @@ func encodeName(name string) ([]byte, error) {
 	slog.Debug("encoding name", "name", name)
 	var buf bytes.Buffer
 	for label := range strings.SplitSeq(name, ".") {
+		if len(label) == 0 {
+			continue
+		}
 		err := buf.WriteByte(uint8(len(label)))
 		if err != nil {
 			return nil, fmt.Errorf("encoding name: %w", err)
